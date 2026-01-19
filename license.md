@@ -25,7 +25,7 @@ You may **not**:
 * Offer this software as part of a paid service or subscription
 
 Commercial licenses are available by contacting:
-📧 **[m.oger@roitaystems.ca](mailto:m.oger@roitaystems.ca)**
+📧 **[m.oger@roitsystems.ca](mailto:m.oger@roitsystems.ca)**
 
 ---
 
@@ -71,7 +71,7 @@ Commercial licenses are available for:
 * commercial R&D or field deployments
 
 To request a commercial license, contact:
-📧 **[m.oger@roitaystems.ca](mailto:m.oger@roitaystems.ca)**
+📧 **[m.oger@roitsystems.ca](mailto:m.oger@roitsystems.ca)**
 
 ---
 
