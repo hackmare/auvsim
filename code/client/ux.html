@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AUV Control + Telemetry</title>
+  <style>
+    :root { --bg:#0b0f14; --panel:#111826; --text:#e6edf3; --muted:#9fb0c0; --accent:#58a6ff; --good:#2ea043; --warn:#f0883e; --grid:#223044; }
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    .wrap { display: grid; grid-template-rows: 1fr auto; height: 100%; }
+    .top { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 12px; padding: 12px; min-height: 0; }
+    .card { background: var(--panel); border: 1px solid #1f2a3a; border-radius: 12px; padding: 12px; box-sizing: border-box; }
+    .viz { position: relative; overflow: hidden; }
+    canvas { width: 100%; height: 100%; display: block; background: radial-gradient(1200px 700px at 50% 50%, #0f1726 0%, #0b0f14 55%, #070a0f 100%); border-radius: 10px; }
+    .hud {
+      position: absolute; inset: 10px 10px auto 10px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+      pointer-events: none;
+    }
+    .hud .pill {
+      background: rgba(17,24,38,0.82);
+      border: 1px solid rgba(88,166,255,0.25);
+      border-radius: 10px;
+      padding: 8px 10px;
+      backdrop-filter: blur(6px);
+      font-size: 12px;
+      line-height: 1.35;
+      color: var(--text);
+    }
+    .hud .pill b { color: white; }
+    .telemetry { display: grid; grid-template-columns: 1fr; gap: 10px; min-height: 0; }
+    .telemetry pre {
+      margin: 0; white-space: pre-wrap; word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px; color: #dbe7f3;
+      background: #0b1220; border: 1px solid #1f2a3a; border-radius: 10px;
+      padding: 10px;
+    }
+    .footer { padding: 12px; border-top: 1px solid #1f2a3a; background: rgba(11,15,20,0.85); backdrop-filter: blur(8px); }
+    .controls { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 12px; align-items: end; }
+    .controlGroup { background: var(--panel); border: 1px solid #1f2a3a; border-radius: 12px; padding: 12px; }
+    .titleRow { display:flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+    .titleRow .label { font-weight: 700; }
+    .titleRow .value { font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--accent); }
+    .btnRow { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    button {
+      appearance: none; border: 1px solid #2a3a52; background: #0b1220; color: var(--text);
+      border-radius: 10px; padding: 10px 12px; cursor: pointer; font-weight: 700;
+      transition: transform 0.02s ease, background 0.15s ease, border-color 0.15s ease;
+    }
+    button:active { transform: translateY(1px); }
+    button:hover { border-color: rgba(88,166,255,0.65); background: #0c172d; }
+    .btnMinus { color: #ffb4b4; }
+    .btnPlus  { color: #b6ffcc; }
+    .sliderRow { display:flex; flex-direction: column; gap: 8px; }
+    input[type="range"] { width: 100%; }
+    .metaRow { display:flex; gap: 10px; justify-content: space-between; color: var(--muted); font-size: 12px; }
+    .statusBar { display:flex; gap: 10px; align-items: center; margin-top: 8px; color: var(--muted); font-size: 12px; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; background: #444; }
+    .dot.ok { background: var(--good); }
+    .dot.bad { background: #d73a49; }
+    .small { font-size: 12px; color: var(--muted); }
+    .k { color: var(--muted); }
+    .v { color: var(--text); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="card viz">
+        <canvas id="c"></canvas>
+        <div class="hud">
+          <div class="pill" id="pill1"></div>
+          <div class="pill" id="pill2"></div>
+        </div>
+      </div>
+
+      <div class="card telemetry">
+        <div class="titleRow">
+          <div class="label">Telemetry</div>
+          <div class="value" id="tstamp">—</div>
+        </div>
+        <pre id="telemetryText">Waiting for status…</pre>
+        <div class="small">
+          Using:
+          <span class="k">https://vehicle.local:</span><span class="v">8440/status</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div class="controls">
+        <div class="controlGroup">
+          <div class="titleRow">
+            <div class="label">Pitch fin (horizontal)</div>
+            <div class="value"><span id="pitchVal">0</span>°</div>
+          </div>
+          <div class="btnRow">
+            <button class="btnMinus" id="pitchMinus">−1°</button>
+            <button class="btnPlus"  id="pitchPlus">+1°</button>
+          </div>
+          <div class="statusBar"><span class="dot" id="dotPitch"></span><span id="pitchMsg">Idle</span></div>
+        </div>
+
+        <div class="controlGroup">
+          <div class="titleRow">
+            <div class="label">Yaw fin (vertical)</div>
+            <div class="value"><span id="yawVal">0</span>°</div>
+          </div>
+          <div class="btnRow">
+            <button class="btnMinus" id="yawMinus">−1°</button>
+            <button class="btnPlus"  id="yawPlus">+1°</button>
+          </div>
+          <div class="statusBar"><span class="dot" id="dotYaw"></span><span id="yawMsg">Idle</span></div>
+        </div>
+
+        <div class="controlGroup">
+          <div class="titleRow">
+            <div class="label">Propulsor</div>
+            <div class="value"><span id="propVal">0</span>%</div>
+          </div>
+          <div class="sliderRow">
+            <input id="propSlider" type="range" min="-30" max="100" step="1" value="0"/>
+            <div class="metaRow">
+              <span>Reverse −30%</span>
+              <span>Forward +100%</span>
+            </div>
+          </div>
+          <div class="statusBar"><span class="dot" id="dotProp"></span><span id="propMsg">Idle</span></div>
+        </div>
+      </div>
+
+      <div class="small" style="margin-top:10px">
+        Visualization is centered on the vehicle. Grid is in meters in the world X/Y plane. Altitude is Z (up).
+      </div>
+    </div>
+  </div>
+
+<script>
+  // ---------------------------------------
+  // IMPORTANT: vehicle.local + mixed content
+  // ---------------------------------------
+  // Your UI is served from https://vehicle.local/auv.ui
+  // The sim endpoints are on HTTPS ports:
+  //   8440, 8442, 8446
+  //
+  // This page uses HTTPS for those endpoints to avoid mixed-content blocks.
+  // Your sim must be running with USE_HTTPS=True and a cert trusted by your browser,
+  // or your browser must allow the cert (dev).
+  //
+  // If you *can't* do HTTPS on those ports, you will need a same-origin proxy on 443.
+
+  const HOST = "vehicle.local";
+  const BASE_STATUS = `https://${HOST}:8440/status`;
+  const SET_PITCH   = `https://${HOST}:8440/set?value=`; // horiz fin
+  const SET_YAW     = `https://${HOST}:8442/set?value=`; // vert fin
+  const SET_PROP    = `https://${HOST}:8446/set?value=`; // prop percent
+
+  const POLL_HZ = 10;
+  const GRID_MAJOR_M = 10;
+  const GRID_MINOR_M = 2;
+  const GRID_RANGE_M = 60;
+  const VELOCITY_SCALE = 2.0;
+
+  let last = null;
+  let desiredPitch = 0;
+  let desiredYaw = 0;
+  let desiredProp = 0;
+
+  const el = (id) => document.getElementById(id);
+  const pitchVal = el("pitchVal");
+  const yawVal   = el("yawVal");
+  const propVal  = el("propVal");
+  const propSlider = el("propSlider");
+
+  const dotPitch = el("dotPitch"), dotYaw = el("dotYaw"), dotProp = el("dotProp");
+  const pitchMsg = el("pitchMsg"), yawMsg = el("yawMsg"), propMsg = el("propMsg");
+
+  const telemetryText = el("telemetryText");
+  const tstamp = el("tstamp");
+  const pill1 = el("pill1");
+  const pill2 = el("pill2");
+
+  const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+  const fmt = (x, n=2) => (Number.isFinite(x) ? x.toFixed(n) : "—");
+  const nowStr = () => new Date().toLocaleTimeString();
+
+  function setDot(dot, ok) {
+    dot.classList.remove("ok", "bad");
+    dot.classList.add(ok ? "ok" : "bad");
+  }
+
+  async function httpSet(url, dot, msgEl, label) {
+    try {
+      setDot(dot, false);
+      msgEl.textContent = "Sending…";
+      const r = await fetch(url, { method: "GET" });
+      if (!r.ok) throw new Error(`${label} HTTP ${r.status}`);
+      setDot(dot, true);
+      msgEl.textContent = "OK";
+      return await r.json();
+    } catch (e) {
+      setDot(dot, false);
+      msgEl.textContent = String(e.message || e);
+      return null;
+    }
+  }
+
+  function toBodyFromWorld(vWorld, yawDeg, pitchDeg, rollDeg) {
+    const yaw = yawDeg * Math.PI/180;
+    const pitch = pitchDeg * Math.PI/180;
+    const roll = rollDeg * Math.PI/180;
+
+    const cy = Math.cos(yaw),  sy = Math.sin(yaw);
+    const cp = Math.cos(pitch),sp = Math.sin(pitch);
+    const cr = Math.cos(roll), sr = Math.sin(roll);
+
+    const R = [
+      [cy*cp, cy*sp*sr - sy*cr, cy*sp*cr + sy*sr],
+      [sy*cp, sy*sp*sr + cy*cr, sy*sp*cr - cy*sr],
+      [-sp,   cp*sr,            cp*cr           ]
+    ];
+
+    const vx = vWorld.x, vy = vWorld.y, vz = vWorld.z;
+    return {
+      x: R[0][0]*vx + R[1][0]*vy + R[2][0]*vz,
+      y: R[0][1]*vx + R[1][1]*vy + R[2][1]*vz,
+      z: R[0][2]*vx + R[1][2]*vy + R[2][2]*vz
+    };
+  }
+
+  // Canvas
+  const canvas = el("c");
+  const ctx = canvas.getContext("2d");
+
+  function resizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width  = Math.floor(rect.width * dpr);
+    canvas.height = Math.floor(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener("resize", resizeCanvas);
+  resizeCanvas();
+
+  function metersToPixels(m, halfW) {
+    return (m / GRID_RANGE_M) * halfW;
+  }
+
+  function drawGrid(w, h) {
+    const cx = w/2, cy = h/2;
+    const half = Math.min(w, h)/2;
+
+    const minorPx = metersToPixels(GRID_MINOR_M, half);
+    const majorPx = metersToPixels(GRID_MAJOR_M, half);
+
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(34,48,68,0.35)";
+    for (let x = cx % minorPx; x < w; x += minorPx) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+    }
+    for (let y = cy % minorPx; y < h; y += minorPx) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    }
+
+    ctx.strokeStyle = "rgba(34,48,68,0.75)";
+    for (let x = cx % majorPx; x < w; x += majorPx) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+    }
+    for (let y = cy % majorPx; y < h; y += majorPx) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    }
+
+    ctx.strokeStyle = "rgba(88,166,255,0.9)";
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(w, cy); ctx.stroke();
+
+    ctx.fillStyle = "rgba(88,166,255,1.0)";
+    ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI*2); ctx.fill();
+  }
+
+  function drawVehicle(w, h, yawDeg) {
+    const cx = w/2, cy = h/2;
+    const yaw = yawDeg * Math.PI/180;
+
+    const size = 14;
+    const pts = [
+      {x:  size, y: 0},
+      {x: -size*0.8, y:  size*0.55},
+      {x: -size*0.8, y: -size*0.55},
+    ];
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(yaw);
+    ctx.fillStyle = "rgba(46,160,67,0.95)";
+    ctx.strokeStyle = "rgba(46,160,67,1)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    ctx.lineTo(pts[1].x, pts[1].y);
+    ctx.lineTo(pts[2].x, pts[2].y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawVector(w, h, vx, vy, color, label) {
+    const cx = w/2, cy = h/2;
+    const sx = cx + vx * VELOCITY_SCALE;
+    const sy = cy - vy * VELOCITY_SCALE;
+
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(sx, sy);
+    ctx.stroke();
+
+    const ang = Math.atan2(sy - cy, sx - cx);
+    const ah = 10;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx - ah*Math.cos(ang - Math.PI/6), sy - ah*Math.sin(ang - Math.PI/6));
+    ctx.lineTo(sx - ah*Math.cos(ang + Math.PI/6), sy - ah*Math.sin(ang + Math.PI/6));
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.font = "12px ui-monospace, Menlo, Consolas, monospace";
+    ctx.fillText(label, sx + 8, sy + 4);
+  }
+
+  function render() {
+    const rect = canvas.getBoundingClientRect();
+    const w = rect.width, h = rect.height;
+    ctx.clearRect(0, 0, w, h);
+
+    drawGrid(w, h);
+    const yaw = last?.att_deg?.yaw ?? 0;
+    drawVehicle(w, h, yaw);
+
+    if (last) {
+      const vW = last.vel_mps || {x:0,y:0,z:0};
+      drawVector(w, h, vW.x, vW.y, "rgba(88,166,255,0.95)", "Vw (XY)");
+
+      const att = last.att_deg || {yaw:0,pitch:0,roll:0};
+      const vB = toBodyFromWorld(vW, att.yaw, att.pitch, att.roll);
+      drawVector(w, h, vB.x, vB.y, "rgba(240,136,62,0.95)", "Vb (XY)");
+    }
+    requestAnimationFrame(render);
+  }
+  requestAnimationFrame(render);
+
+  // Polling
+  async function pollStatus() {
+    try {
+      const r = await fetch(BASE_STATUS, { cache: "no-store" });
+      if (!r.ok) throw new Error(`status HTTP ${r.status}`);
+      last = await r.json();
+      tstamp.textContent = nowStr();
+
+      if (last.controls) {
+        desiredPitch = last.controls.horiz_fin_deg ?? desiredPitch;
+        desiredYaw   = last.controls.vert_fin_deg  ?? desiredYaw;
+        desiredProp  = last.controls.prop_percent  ?? desiredProp;
+      }
+
+      pitchVal.textContent = desiredPitch;
+      yawVal.textContent   = desiredYaw;
+      propVal.textContent  = desiredProp;
+      propSlider.value     = desiredProp;
+
+      const pos = last.pos_m || {x:0,y:0,z:0};
+      const att = last.att_deg || {yaw:0,pitch:0,roll:0};
+      const vW  = last.vel_mps || {x:0,y:0,z:0};
+      const rB  = last.rates_dps || {p:0,q:0,r:0};
+      const vB  = toBodyFromWorld(vW, att.yaw, att.pitch, att.roll);
+      const dbg = last.debug || {};
+
+      pill1.innerHTML =
+        `<b>Position</b><br>` +
+        `X ${fmt(pos.x,2)} m<br>` +
+        `Y ${fmt(pos.y,2)} m<br>` +
+        `Alt(Z) ${fmt(pos.z,2)} m`;
+
+      pill2.innerHTML =
+        `<b>Attitude</b><br>` +
+        `Yaw ${fmt(att.yaw,1)}°<br>` +
+        `Pitch ${fmt(att.pitch,1)}°<br>` +
+        `Roll ${fmt(att.roll,1)}°`;
+
+      telemetryText.textContent =
+        `pos_w (m):   x=${fmt(pos.x,3)}  y=${fmt(pos.y,3)}  z=${fmt(pos.z,3)} (alt)\n` +
+        `att (deg):   yaw=${fmt(att.yaw,3)}  pitch=${fmt(att.pitch,3)}  roll=${fmt(att.roll,3)}\n` +
+        `vel_w (m/s): x=${fmt(vW.x,3)}  y=${fmt(vW.y,3)}  z=${fmt(vW.z,3)}\n` +
+        `vel_b (m/s): x=${fmt(vB.x,3)}  y=${fmt(vB.y,3)}  z=${fmt(vB.z,3)}\n` +
+        `rates_b (°/s): p=${fmt(rB.p,3)}  q=${fmt(rB.q,3)}  r=${fmt(rB.r,3)}\n` +
+        `controls:    pitchFin=${desiredPitch}°  yawFin=${desiredYaw}°  prop=${desiredProp}%\n` +
+        `debug:       pitch_math=${fmt(dbg.pitch_math_deg,3)}°  q_math=${fmt(dbg.q_math_dps,3)}°/s\n`;
+
+    } catch (e) {
+      tstamp.textContent = nowStr();
+      telemetryText.textContent =
+        `Status error:\n${String(e.message || e)}\n\n` +
+        `If this is a certificate/CORS issue, make sure:\n` +
+        `- the sim endpoints are HTTPS with a cert your browser trusts, OR\n` +
+        `- you proxy /api/* on https://vehicle.local to the ports 8440/8442/8446.`;
+      last = null;
+    }
+  }
+
+  setInterval(pollStatus, Math.round(1000 / POLL_HZ));
+  pollStatus();
+
+  // Controls
+  function setPitch(delta) {
+    desiredPitch = clamp(desiredPitch + delta, -30, 30);
+    pitchVal.textContent = desiredPitch;
+    httpSet(SET_PITCH + desiredPitch, dotPitch, pitchMsg, "pitch");
+  }
+
+  function setYaw(delta) {
+    desiredYaw = clamp(desiredYaw + delta, -30, 30);
+    yawVal.textContent = desiredYaw;
+    httpSet(SET_YAW + desiredYaw, dotYaw, yawMsg, "yaw");
+  }
+
+  function setProp(value) {
+    desiredProp = clamp(value, -30, 100);
+    propVal.textContent = desiredProp;
+    propSlider.value = desiredProp;
+    httpSet(SET_PROP + desiredProp, dotProp, propMsg, "prop");
+  }
+
+  el("pitchMinus").addEventListener("click", () => setPitch(-1));
+  el("pitchPlus").addEventListener("click",  () => setPitch(+1));
+  el("yawMinus").addEventListener("click",   () => setYaw(-1));
+  el("yawPlus").addEventListener("click",    () => setYaw(+1));
+
+  propSlider.addEventListener("input", (ev) => {
+    propVal.textContent = ev.target.value;
+  });
+  propSlider.addEventListener("change", (ev) => {
+    setProp(parseInt(ev.target.value, 10));
+  });
+</script>
+</body>
+</html>  
+<!--
+LICENSE NOTICE (Non-Commercial + Commercial Licensing)
+
+Copyright © 2026 Morgane Oger
+
+This software and associated documentation are licensed under the
+PolyForm Noncommercial License 1.0.0 (source-available; non-commercial use only).
+
+Full license text:
+https://polyformproject.org/licenses/noncommercial/1.0.0/
+
+Commercial use is NOT permitted without a separate commercial license.
+
+Commercial licensing inquiries:
+m.oger@roitsystems.ca
+
+See also:
+- LICENSE.md
+- COMMERCIAL.md
+
+Additional Use Restrictions (Safety & Ethics):
+This software may not be used, in whole or in part, for weapons systems,
+autonomous lethal systems, or to cause physical harm, or for activities intended
+to violate human rights.
+-->  
+
+
