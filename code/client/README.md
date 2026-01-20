@@ -2,6 +2,15 @@
 
 This directory contains the web UI for the AUV Simulator with a clean separation of API configuration and client libraries.
 
+## Key Benefits
+
+✓ **Localhost ready** - No complex HTTPS setup needed for demos
+✓ **Modular** - Config and client are reusable libraries, easily deployed to other projects
+✓ **Easy to customize** - Change hostname/port in one place (`lib/api-config.js`)
+✓ **Production security** - Backend has full WAF protection enabled by default
+✓ **Automatic retries** - Client library handles transient network issues automatically
+✓ **Clean codebase** - No hardcoded URLs or endpoints in HTML anymore
+
 ## Project Structure
 
 ```
