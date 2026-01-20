@@ -1,0 +1,120 @@
+# Demo Setup Complete ✓
+
+## Summary
+
+Your AUV Simulator is now configured for localhost demo with a clean, modular architecture for API connectivity.
+
+## What Was Created
+
+### 1. **API Configuration Library** (`lib/api-config.js`)
+```javascript
+APIConfig = {
+  hostname: 'localhost',  // Easy to change
+  port: 8080,
+  protocol: 'http'
+}
+```
+- Centralized configuration for all server details
+- Simple to update hostname, port, or protocol
+- Includes all endpoint definitions
+- Easy to extend with new settings
+
+### 2. **API Client Library** (`lib/auv-client.js`)
+- `AUVSimClient` class for clean API communication
+- Methods: `getStatus()`, `setPitch()`, `setYaw()`, `setProp()`
+- Automatic retry logic with exponential backoff
+- Connection polling support
+- Health check functionality
+
+### 3. **Updated UI** (`ux.html`)
+- Now imports both libraries via `<script>` tags
+- Uses `auvClient` singleton for all backend communication
+- Cleaner, more maintainable code
+- No hardcoded URLs or endpoints
+
+## Quick Demo Steps
+
+### Terminal 1: Start Backend
+```bash
+cd /Users/morgane/github/auvsim/code/service
+python auv_sim_api.py
+```
+
+Output:
+```
+INFO:WAF:AUV Sim API running on :8080 with WAF protection enabled
+```
+
+### Terminal 2: Serve UI
+```bash
+cd /Users/morgane/github/auvsim/code/client
+python -m http.server 5000
+```
+
+### Browser
+Visit: `http://localhost:5000/ux.html`
+
+## Default Configuration
+
+```
+Backend API:    http://localhost:8080
+├─ /status      - GET vehicle state
+├─ /pitch       - POST pitch fin control
+├─ /yaw         - POST yaw fin control
+└─ /prop        - POST propeller control
+
+Frontend UI:    http://localhost:5000
+└─ /ux.html     - Main web interface
+  └─ /lib/
+     ├─ api-config.js  (centralized config)
+     └─ auv-client.js  (API client)
+```
+
+## To Change Server Address
+
+Edit `/Users/morgane/github/auvsim/code/client/lib/api-config.js`:
+
+```javascript
+const APIConfig = {
+  hostname: 'vehicle.local',  // ← Change this
+  port: 8080,                  // ← Or this
+  protocol: 'http',            // ← Or this
+  // ... rest unchanged
+};
+```
+
+## Key Features
+
+✓ **Localhost ready** - No HTTPS complexity for demo
+✓ **Modular design** - Config and client are separate, reusable libraries
+✓ **Production security** - Backend has WAF protection enabled
+✓ **Automatic retries** - Client handles transient network issues
+✓ **Easy to extend** - Add new endpoints by updating config and client
+✓ **Clean codebase** - No hardcoded URLs in HTML anymore
+
+## Files Layout
+
+```
+/Users/morgane/github/auvsim/code/
+├── service/
+│   ├── auv_sim_api.py           (Backend with WAF protection)
+│   ├── test_auv_sim_api.py      (Regression tests)
+│   └── .venv/                   (Python environment)
+│
+└── client/
+    ├── ux.html                  (Updated UI)
+    ├── README.md                (Full documentation)
+    ├── DEMO_SETUP.txt           (This file)
+    └── lib/
+        ├── api-config.js        ← NEW: Centralized config
+        └── auv-client.js        ← NEW: API client library
+```
+
+## Next Steps
+
+1. Start the backend: `python auv_sim_api.py`
+2. Serve the frontend: `python -m http.server 5000`
+3. Open browser: `http://localhost:5000/ux.html`
+4. Control the AUV with the UI
+
+The configuration is now completely separate from the UI code, making it easy to deploy to different servers or change connectivity details without touching HTML.

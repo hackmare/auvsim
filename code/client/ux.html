@@ -4,6 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>AUV Control + Telemetry</title>
+  <!-- Load API configuration and client libraries -->
+  <script src="lib/api-config.js"></script>
+  <script src="lib/auv-client.js"></script>
   <style>
     :root { --bg:#0b0f14; --panel:#111826; --text:#e6edf3; --muted:#9fb0c0; --accent:#58a6ff; --good:#2ea043; --warn:#f0883e; --grid:#223044; }
     html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
@@ -137,24 +140,8 @@
   </div>
 
 <script>
-  // ---------------------------------------
-  // IMPORTANT: vehicle.local + mixed content
-  // ---------------------------------------
-  // Your UI is served from https://vehicle.local/auv.ui
-  // The sim endpoints are on HTTPS ports:
-  //   8440, 8442, 8446
-  //
-  // This page uses HTTPS for those endpoints to avoid mixed-content blocks.
-  // Your sim must be running with USE_HTTPS=True and a cert trusted by your browser,
-  // or your browser must allow the cert (dev).
-  //
-  // If you *can't* do HTTPS on those ports, you will need a same-origin proxy on 443.
-
-  const HOST = "vehicle.local";
-  const BASE_STATUS = `https://${HOST}:8440/status`;
-  const SET_PITCH   = `https://${HOST}:8440/set?value=`; // horiz fin
-  const SET_YAW     = `https://${HOST}:8442/set?value=`; // vert fin
-  const SET_PROP    = `https://${HOST}:8446/set?value=`; // prop percent
+  // API Configuration and client initialization
+  // Configuration is loaded from lib/api-config.js and lib/auv-client.js
 
   const POLL_HZ = 10;
   const GRID_MAJOR_M = 10;
@@ -190,19 +177,24 @@
     dot.classList.add(ok ? "ok" : "bad");
   }
 
-  async function httpSet(url, dot, msgEl, label) {
+  async function httpSet(endpoint, dot, msgEl, label, value) {
     try {
       setDot(dot, false);
       msgEl.textContent = "Sending…";
-      const r = await fetch(url, { method: "GET" });
-      if (!r.ok) throw new Error(`${label} HTTP ${r.status}`);
+      
+      const method = endpoint === 'status' ? 'setPitch' : 
+                     endpoint === 'pitch' ? 'setPitch' :
+                     endpoint === 'yaw' ? 'setYaw' :
+                     endpoint === 'prop' ? 'setProp' : null;
+      
+      if (!method) throw new Error(`Unknown endpoint: ${endpoint}`);
+      
+      await auvClient[method](value);
       setDot(dot, true);
       msgEl.textContent = "OK";
-      return await r.json();
     } catch (e) {
       setDot(dot, false);
       msgEl.textContent = String(e.message || e);
-      return null;
     }
   }
 
@@ -356,15 +348,14 @@
   // Polling
   async function pollStatus() {
     try {
-      const r = await fetch(BASE_STATUS, { cache: "no-store" });
-      if (!r.ok) throw new Error(`status HTTP ${r.status}`);
-      last = await r.json();
+      const status = await auvClient.getStatus();
+      last = status;
       tstamp.textContent = nowStr();
 
       if (last.controls) {
-        desiredPitch = last.controls.horiz_fin_deg ?? desiredPitch;
-        desiredYaw   = last.controls.vert_fin_deg  ?? desiredYaw;
-        desiredProp  = last.controls.prop_percent  ?? desiredProp;
+        desiredPitch = last.controls.pitch_fin ?? desiredPitch;
+        desiredYaw   = last.controls.yaw_fin ?? desiredYaw;
+        desiredProp  = last.controls.prop ?? desiredProp;
       }
 
       pitchVal.textContent = desiredPitch;
@@ -375,9 +366,7 @@
       const pos = last.pos_m || {x:0,y:0,z:0};
       const att = last.att_deg || {yaw:0,pitch:0,roll:0};
       const vW  = last.vel_mps || {x:0,y:0,z:0};
-      const rB  = last.rates_dps || {p:0,q:0,r:0};
       const vB  = toBodyFromWorld(vW, att.yaw, att.pitch, att.roll);
-      const dbg = last.debug || {};
 
       pill1.innerHTML =
         `<b>Position</b><br>` +
@@ -396,11 +385,9 @@
         `att (deg):   yaw=${fmt(att.yaw,3)}  pitch=${fmt(att.pitch,3)}  roll=${fmt(att.roll,3)}\n` +
         `vel_w (m/s): x=${fmt(vW.x,3)}  y=${fmt(vW.y,3)}  z=${fmt(vW.z,3)}\n` +
         `vel_b (m/s): x=${fmt(vB.x,3)}  y=${fmt(vB.y,3)}  z=${fmt(vB.z,3)}\n` +
-        `rates_b (°/s): p=${fmt(rB.p,3)}  q=${fmt(rB.q,3)}  r=${fmt(rB.r,3)}\n` +
-        `controls:    pitchFin=${desiredPitch}°  yawFin=${desiredYaw}°  prop=${desiredProp}%\n` +
-        `debug:       pitch_math=${fmt(dbg.pitch_math_deg,3)}°  q_math=${fmt(dbg.q_math_dps,3)}°/s\n`;
+        `controls:    pitchFin=${desiredPitch}°  yawFin=${desiredYaw}°  prop=${desiredProp}%\n`;
 
-    } catch (e) {
+    } catch (e)) {
       tstamp.textContent = nowStr();
       telemetryText.textContent =
         `Status error:\n${String(e.message || e)}\n\n` +
@@ -418,20 +405,20 @@
   function setPitch(delta) {
     desiredPitch = clamp(desiredPitch + delta, -30, 30);
     pitchVal.textContent = desiredPitch;
-    httpSet(SET_PITCH + desiredPitch, dotPitch, pitchMsg, "pitch");
+    httpSet('pitch', dotPitch, pitchMsg, "pitch", desiredPitch);
   }
 
   function setYaw(delta) {
     desiredYaw = clamp(desiredYaw + delta, -30, 30);
     yawVal.textContent = desiredYaw;
-    httpSet(SET_YAW + desiredYaw, dotYaw, yawMsg, "yaw");
+    httpSet('yaw', dotYaw, yawMsg, "yaw", desiredYaw);
   }
 
   function setProp(value) {
     desiredProp = clamp(value, -30, 100);
     propVal.textContent = desiredProp;
     propSlider.value = desiredProp;
-    httpSet(SET_PROP + desiredProp, dotProp, propMsg, "prop");
+    httpSet('prop', dotProp, propMsg, "prop", desiredProp);
   }
 
   el("pitchMinus").addEventListener("click", () => setPitch(-1));
